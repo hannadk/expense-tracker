@@ -10,10 +10,14 @@
 <meta name="apple-mobile-web-app-title" content="Expenses">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script src="xlsx.full.min.js"></script>
+<script src="config.js"></script>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mu:#6b7480;--bd:#e3e6ea;--in:#1a9e5c;--ex:#e0453a;--iv:#2f6fe4;--ac:#2f6fe4;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171a;--card:#1d2126;--tx:#eceff2;--mu:#9aa3ad;--bd:#2d333a;--in:#3ec082;--ex:#ef6b61;--iv:#6b9bf0;--ac:#6b9bf0;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#14171a;--card:#1d2126;--tx:#eceff2;--mu:#9aa3ad;--bd:#2d333a;--in:#3ec082;--ex:#ef6b61;--iv:#6b9bf0;--ac:#6b9bf0;color-scheme:dark}
+/* accent colours (edit these to add your own) */
+:root[data-accent="teal"]{--ac:#0f9d9a}:root[data-accent="purple"]{--ac:#7a4fe0}:root[data-accent="orange"]{--ac:#d9701a}:root[data-accent="pink"]{--ac:#d6407a}:root[data-accent="green"]{--ac:#1a9e5c}:root[data-accent="black"]{--ac:#3a4048}
+.sw{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 12px}.sw button{width:36px;height:36px;border-radius:50%;padding:0;border:3px solid var(--card);box-shadow:0 0 0 1px var(--bd)}.sw button.on{box-shadow:0 0 0 3px var(--tx)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -63,39 +67,87 @@ button{cursor:pointer;width:auto}button.p{background:var(--ac);color:#fff;border
 </div>
 
 <div class="card"><h2 id="lh">Entries</h2><div id="list"></div></div>
+<div class="card"><h2>⚙ Settings</h2>
+<div class="mu">Theme</div><div class="seg" id="th" style="margin-top:6px"><button data-th="auto">Auto</button><button data-th="light">Light</button><button data-th="dark">Dark</button></div>
+<div class="mu">Colour</div><div class="row" id="ac" style="margin:6px 0 12px"></div>
+<div class="mu">Currency symbol</div><select id="cs" style="margin-top:6px"><option>₹</option><option>$</option><option>€</option><option>£</option><option>AED </option><option>SAR </option></select>
+</div>
 <div class="card"><h2>Download report</h2><p class="mu" style="margin-top:0">Excel file with all entries, a monthly summary and a category summary.</p><button class="p" id="xl" style="width:100%">⬇ Download Excel</button><div class="mu" id="xmsg" style="margin-top:6px"></div></div>
+<div class="card"><h2>🎨 Theme</h2>
+<div class="mu">Mode</div><div class="seg" id="modes" style="margin-top:6px"><button data-m="auto">Auto</button><button data-m="light">Light</button><button data-m="dark">Dark</button></div>
+<div class="mu">Colour</div><div class="sw" id="accs"></div></div>
 <div class="card" id="inst"><h2>📲 Use as an app</h2><button class="p" id="ib" style="width:100%;margin-bottom:8px" hidden>Install app</button><p class="mu" style="margin:0"><b>iPhone (Safari):</b> tap Share, then “Add to Home Screen”.<br><b>Android (Chrome):</b> tap ⋮ menu, then “Add to Home screen” or “Install app”.<br>After that it opens full-screen from your home screen like a normal app.</p></div>
-<p class="mu" style="text-align:center">Your data stays on this device. Download Excel regularly as a backup.</p>
 <p class="mu" id="sync" style="text-align:center"></p>
 </div>
 
 <script>
 var $=function(i){return document.getElementById(i)};
-var S={hash:null,tx:[]},db=null,docRef=null,KEY="expense_tracker_v1",mode="lock",ok=false;
+var S={hash:null,tx:[],del:[]},db=null,docRef=null,KEY="expense_tracker_v1",mode="lock",ok=false;
 var type="Expense",view="month",cur=new Date(),follow=true;
 var MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function pad(n){return n<10?"0"+n:""+n}
 function iso(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
-function money(n){return n.toLocaleString(undefined,{maximumFractionDigits:2})}
+function money(n){return (S.cs||"₹")+n.toLocaleString(undefined,{maximumFractionDigits:2})}
 function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}
 async function sha(s){var b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("et|"+s));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,"0")}).join("")}
 
-/* storage: this device only */
+/* storage: this device + optional free cloud sync (Firestore REST) */
+var CF=window.CFG||{},SYNC=!!(CF.projectId&&CF.apiKey),docId=null,saveT,busy=false,again=false;
+var COL=["#2f6fe4","#7c4dff","#e91e63","#ef6c00","#00897b","#546e7a"];
 function local(){try{var r=localStorage.getItem(KEY);return r?JSON.parse(r):null}catch(e){return null}}
 function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-var saveT;
-function save(){saveLocal();clearTimeout(saveT);saveT=setTimeout(function(){$("sync").textContent="Saved on this device ✓"},400)}
-async function load(){var l=local();if(l)S=l;}
+function fsUrl(){return"https://firestore.googleapis.com/v1/projects/"+CF.projectId+"/databases/(default)/documents/trackers/"+docId}
+async function pull(){try{var r=await fetch(fsUrl()+"?key="+CF.apiKey);if(r.status===404)return null;if(!r.ok)return false;var j=await r.json();return JSON.parse(j.fields.data.stringValue)}catch(e){return false}}
+async function push(){try{var b={tx:S.tx,del:S.del,th:S.th,ac:S.ac,cs:S.cs,su:S.su||0};var r=await fetch(fsUrl()+"?key="+CF.apiKey+"&updateMask.fieldPaths=data",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:{data:{stringValue:JSON.stringify(b)}}})});return r.ok}catch(e){return false}}
+function merge(r){
+  var del={},m={};(S.del||[]).concat(r.del||[]).forEach(function(i){del[i]=1});
+  (S.tx||[]).concat(r.tx||[]).forEach(function(t){if(!del[t.id])m[t.id]=t});
+  S.tx=Object.keys(m).map(function(k){return m[k]});S.del=Object.keys(del);
+  if((r.su||0)>(S.su||0)){S.th=r.th;S.ac=r.ac;S.cs=r.cs;S.su=r.su}
+}
+async function syncNow(){
+  if(!SYNC||!docId||!ok)return;if(busy){again=true;return}busy=true;var sy=$("sync");
+  var r=await pull();
+  if(r===false){sy.textContent="Offline — saved on this device, will sync later";busy=false;return}
+  if(r)merge(r);
+  saveLocal();cats();render();applyUI();
+  var good=await push();
+  sy.textContent=good?"Synced ✓ "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"Offline — will sync later";
+  busy=false;if(again){again=false;syncNow()}
+}
+function save(){saveLocal();if(!SYNC){$("sync").textContent="Saved on this device ✓";return}clearTimeout(saveT);saveT=setTimeout(syncNow,500)}
+async function load(){var l=local();if(l)S=l;S.tx=S.tx||[];S.del=S.del||[]}
+function applyTheme(){
+  var R=document.documentElement;
+  if(S.th==="light"||S.th==="dark")R.setAttribute("data-theme",S.th);else R.removeAttribute("data-theme");
+  if(S.ac)R.style.setProperty("--ac",S.ac);else R.style.removeProperty("--ac");
+  var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=S.ac||"#2f6fe4";
+}
+function applyUI(){
+  applyTheme();
+  [].forEach.call($("th").children,function(b){b.classList.toggle("on",b.dataset.th===(S.th||"auto"))});
+  $("ac").innerHTML=COL.map(function(c){return'<button data-c="'+c+'" aria-label="Colour" style="width:34px;height:34px;padding:0;border-radius:50%;background:'+c+';border:3px solid '+(c===(S.ac||COL[0])?"var(--tx)":"transparent")+'"></button>'}).join("");
+  $("cs").value=S.cs||"₹";
+}
+$("th").onclick=function(e){var t=e.target.dataset.th;if(!t)return;S.th=t;S.su=Date.now();save();applyUI()};
+$("ac").onclick=function(e){var c=e.target.dataset.c;if(!c)return;S.ac=c;S.su=Date.now();save();applyUI()};
+$("cs").onchange=function(){S.cs=$("cs").value;S.su=Date.now();save();render()};
+
 function showLock(){
   mode=S.hash?"enter":"create";
-  $("lt").textContent=mode==="create"?"Welcome! Create your own secret code (4 digits or more). You’ll use it every time you open this page.":"Enter your code to open your tracker.";
-  $("code2").hidden=mode!=="create";$("go").textContent=mode==="create"?"Create code":"Open";
+  $("lt").textContent=mode==="create"?(SYNC?"First time or a new device? Enter your secret code twice. If this code already has data, it will be loaded here.":"Welcome! Create your own secret code (4 or more characters). You’ll use it every time you open this page."):"Enter your code to open your tracker.";
+  $("code2").hidden=mode!=="create";$("go").textContent=mode==="create"?"Continue":"Open";
 }
 $("go").onclick=async function(){
-  var c=$("code").value.trim();$("err").textContent="";
-  if(c.length<4){$("err").textContent="Use at least 4 characters.";return}
-  if(mode==="create"){if(c!==$("code2").value.trim()){$("err").textContent="Codes don’t match.";return}S.hash=await sha(c);save()}
-  else if(await sha(c)!==S.hash){$("err").textContent="Wrong code. Try again.";return}
+  var c=$("code").value.trim(),er=$("err"),min=SYNC?6:4;er.textContent="";
+  if(c.length<min){er.textContent="Use at least "+min+" characters.";return}
+  var h=await sha(c);
+  if(mode==="create"){
+    if(c!==$("code2").value.trim()){er.textContent="Codes don’t match.";return}
+    if(SYNC){er.textContent="Checking…";docId=h;var r=await pull();if(r===false){er.textContent="Can’t reach the server. Check your internet.";return}er.textContent="";if(r)merge(r)}
+    S.hash=h;saveLocal();
+  }else if(h!==S.hash){er.textContent="Wrong code. Try again.";return}
+  docId=S.hash;
   $("code").value="";$("code2").value="";ok=true;$("lock").hidden=true;$("app").hidden=false;init();
 };
 $("code").onkeydown=$("code2").onkeydown=function(e){if(e.key==="Enter")$("go").click()};
@@ -103,9 +155,7 @@ $("out").onclick=function(){ok=false;$("app").hidden=true;$("lock").hidden=false
 
 /* app */
 function cats(){var s={};S.tx.forEach(function(t){if(t.c)s[t.c]=1});["Food","Transport","Rent","Bills","Shopping","Health","Salary","Stocks","Mutual funds"].forEach(function(c){s[c]=1});$("cats").innerHTML=Object.keys(s).map(function(c){return'<option value="'+esc(c)+'">'}).join("")}
-function init(){
-  $("dt").value=iso(new Date());cur=new Date();follow=true;cats();render();
-}
+function init(){$("dt").value=iso(new Date());cur=new Date();follow=true;cats();render();applyUI();syncNow()}
 $("types").onclick=function(e){var t=e.target.dataset.t;if(!t)return;type=t;[].forEach.call($("types").children,function(b){b.classList.toggle("on",b.dataset.t===t)})};
 $("views").onclick=function(e){var v=e.target.dataset.v;if(!v)return;view=v;[].forEach.call($("views").children,function(b){b.classList.toggle("on",b.dataset.v===v)});render()};
 $("add").onclick=function(){
@@ -140,7 +190,7 @@ function render(){
   $("lh").textContent="Entries — "+$("plabel").textContent;
   $("list").innerHTML=a.length?a.map(function(x){var c=x.t==="Income"?"in":x.t==="Expense"?"ex":"iv";return'<div class="tx"><div><b>'+esc(x.c)+'</b> <small>'+esc(x.n)+'</small><br><small>'+x.d+' · '+x.t+'</small></div><div class="row"><b class="'+c+'">'+(x.t==="Income"?"+":"−")+money(x.a)+'</b><button data-del="'+x.id+'" aria-label="Delete">✕</button></div></div>'}).join(""):'<p class="mu">Nothing recorded for this period.</p>';
 }
-$("list").onclick=function(e){var id=e.target.dataset.del;if(!id||!confirm("Delete this entry?"))return;S.tx=S.tx.filter(function(t){return t.id!==id});save();render()};
+$("list").onclick=function(e){var id=e.target.dataset.del;if(!id||!confirm("Delete this entry?"))return;S.tx=S.tx.filter(function(t){return t.id!==id});S.del=(S.del||[]).concat(id);save();render()};
 
 /* Excel */
 $("xl").onclick=async function(){
@@ -160,15 +210,30 @@ $("xl").onclick=async function(){
 
 /* automatic day change */
 function dayCheck(){if(!ok)return;var t=iso(new Date());if(window._d&&window._d!==t){$("dt").value=t;if(follow){cur=new Date();render()}}window._d=t}
-setInterval(dayCheck,30000);
-document.addEventListener("visibilitychange",function(){if(!document.hidden)dayCheck()});
+setInterval(dayCheck,30000);setInterval(syncNow,60000);window.addEventListener("online",syncNow);
+document.addEventListener("visibilitychange",function(){if(!document.hidden){dayCheck();syncNow()}});
 window._d=iso(new Date());
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});
+/* theme */
+var ACC={blue:"#2f6fe4",teal:"#0f9d9a",green:"#1a9e5c",purple:"#7a4fe0",orange:"#d9701a",pink:"#d6407a",black:"#3a4048"};
+var TH={mode:"auto",acc:"blue"};
+try{TH=Object.assign(TH,JSON.parse(localStorage.getItem("et_theme")||"{}"))}catch(e){}
+function applyTheme(){var r=document.documentElement;
+ if(TH.mode==="auto")r.removeAttribute("data-theme");else r.setAttribute("data-theme",TH.mode);
+ if(TH.acc==="blue")r.removeAttribute("data-accent");else r.setAttribute("data-accent",TH.acc);
+ var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=ACC[TH.acc]||ACC.blue;
+ [].forEach.call($("modes").children,function(b){b.classList.toggle("on",b.dataset.m===TH.mode)});
+ [].forEach.call($("accs").children,function(b){b.classList.toggle("on",b.dataset.a===TH.acc)});
+ try{localStorage.setItem("et_theme",JSON.stringify(TH))}catch(e){}}
+$("accs").innerHTML=Object.keys(ACC).map(function(k){return'<button data-a="'+k+'" style="background:'+ACC[k]+'" aria-label="'+k+'"></button>'}).join("");
+$("modes").onclick=function(e){if(e.target.dataset.m){TH.mode=e.target.dataset.m;applyTheme()}};
+$("accs").onclick=function(e){if(e.target.dataset.a){TH.acc=e.target.dataset.a;applyTheme()}};
+applyTheme();
 /* install */
 (function(){
 var ev=null;window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();ev=e;$("ib").hidden=false});
 $("ib").onclick=function(){if(ev){ev.prompt();ev=null;$("ib").hidden=true}};
 if(window.matchMedia&&matchMedia("(display-mode: standalone)").matches||navigator.standalone)$("inst").hidden=true;
 })();
-load().then(showLock);
+load().then(function(){applyTheme();showLock()});
 </script></body></html>

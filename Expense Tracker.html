@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Expense Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mu:#6b7480;--bd:#e3e6ea;--in:#1a9e5c;--ex:#e0453a;--iv:#2f6fe4;--ac:#2f6fe4;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171a;--card:#1d2126;--tx:#eceff2;--mu:#9aa3ad;--bd:#2d333a;--in:#3ec082;--ex:#ef6b61;--iv:#6b9bf0;--ac:#6b9bf0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14171a;--card:#1d2126;--tx:#eceff2;--mu:#9aa3ad;--bd:#2d333a;--in:#3ec082;--ex:#ef6b61;--iv:#6b9bf0;--ac:#6b9bf0;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:14px}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:8px;align-items:center}.sp{justify-content:space-between}
+input,select,button{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:11px;width:100%}
+button{cursor:pointer;width:auto}button.p{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+.seg{display:flex;gap:6px;margin-bottom:10px}.seg button{flex:1;padding:10px 4px}
+.seg button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.seg button.in.on{background:var(--in);border-color:var(--in)}.seg button.ex.on{background:var(--ex);border-color:var(--ex)}.seg button.iv.on{background:var(--iv);border-color:var(--iv)}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.k{border:1px solid var(--bd);border-radius:12px;padding:10px}.k small{color:var(--mu);display:block}.k b{font-size:18px}
+.in{color:var(--in)}.ex{color:var(--ex)}.iv{color:var(--iv)}
+.seg button.in.on,.seg button.ex.on,.seg button.iv.on{color:#fff}
+.tx{display:flex;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid var(--bd)}
+.tx small{color:var(--mu)}.tx button{padding:4px 9px;border-radius:8px}
+.mu{color:var(--mu);font-size:14px}.sc{overflow-x:auto}
+#lock{max-width:340px;margin:12vh auto}#lock input{margin:10px 0;text-align:center;font-size:20px;letter-spacing:4px}
+.err{color:var(--ex);min-height:20px;font-size:14px}
+</style></head><body>
+<div id="lock" class="wrap"><div class="card">
+<h1>💰 Expense Tracker</h1>
+<p id="lt" class="mu">Loading…</p>
+<input id="code" type="password" inputmode="numeric" autocomplete="off" placeholder="Your code">
+<input id="code2" type="password" inputmode="numeric" autocomplete="off" placeholder="Repeat code" hidden>
+<div class="err" id="err"></div>
+<button class="p" id="go" style="width:100%">Continue</button>
+</div></div>
+
+<div id="app" class="wrap" hidden>
+<div class="row sp" style="margin-bottom:12px"><h1>💰 Expense Tracker</h1><button id="out">Lock</button></div>
+<div class="card"><h2>Add entry</h2>
+<div class="seg" id="types"><button class="ex on" data-t="Expense">Expense</button><button class="in" data-t="Income">Income</button><button class="iv" data-t="Investment">Investment</button></div>
+<div class="g"><input id="amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Amount"><input id="dt" type="date"></div>
+<div class="g" style="margin-top:8px"><input id="cat" list="cats" placeholder="Category (e.g. Food)"><input id="note" placeholder="Note (optional)"></div>
+<datalist id="cats"></datalist>
+<button class="p" id="add" style="width:100%;margin-top:10px">Add</button>
+</div>
+
+<div class="card"><div class="seg" id="views"><button data-v="day">Day</button><button data-v="month" class="on">Month</button><button data-v="year">Year</button></div>
+<div class="row sp" style="margin-bottom:10px"><button id="prev">‹</button><b id="plabel"></b><button id="next">›</button></div>
+<div class="g" id="sum"></div>
+<div class="sc" id="chart" style="margin-top:12px"></div>
+<div class="mu" id="legend" style="margin-top:6px"><span class="in">■</span> Income &nbsp;<span class="ex">■</span> Expense &nbsp;<span class="iv">■</span> Investment</div>
+</div>
+
+<div class="card"><h2 id="lh">Entries</h2><div id="list"></div></div>
+<div class="card"><h2>Download report</h2><p class="mu" style="margin-top:0">Excel file with all entries, a monthly summary and a category summary.</p><button class="p" id="xl" style="width:100%">⬇ Download Excel</button><div class="mu" id="xmsg" style="margin-top:6px"></div></div>
+<p class="mu" id="sync" style="text-align:center"></p>
+</div>
+
+<script>
+var $=function(i){return document.getElementById(i)};
+var S={hash:null,tx:[]},db=null,docRef=null,KEY="expense_tracker_v1",mode="lock",ok=false;
+var type="Expense",view="month",cur=new Date(),follow=true;
+var MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function pad(n){return n<10?"0"+n:""+n}
+function iso(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
+function money(n){return n.toLocaleString(undefined,{maximumFractionDigits:2})}
+function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}
+async function sha(s){var b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("et|"+s));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,"0")}).join("")}
+
+/* storage: synced via claude.ai account when available, else this device only */
+function local(){try{var r=localStorage.getItem(KEY);return r?JSON.parse(r):null}catch(e){return null}}
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+var saveT;
+function save(){saveLocal();clearTimeout(saveT);saveT=setTimeout(function(){if(docRef){docRef.set({hash:S.hash,tx:S.tx}).then(function(){$("sync").textContent="Synced to your account ✓"}).catch(function(){$("sync").textContent="Saved on this device only"})}else $("sync").textContent="Saved on this device"},400)}
+async function load(){
+  try{
+    var u=await claude.use("user"),d=await claude.use("db");
+    if(u&&d){var id=await u.id();db=d;docRef=d.doc("data/users/"+id+"/tracker");
+      var snap=await Promise.race([docRef.get(),new Promise(function(r){setTimeout(function(){r(null)},10000)})]);
+      if(snap&&snap.exists){var v=snap.data();S={hash:v.hash||null,tx:v.tx||[]};saveLocal();return}
+      if(!snap)docRef=null}
+  }catch(e){docRef=null}
+  var l=local();if(l)S=l;
+}
+function showLock(){
+  mode=S.hash?"enter":"create";
+  $("lt").textContent=mode==="create"?"Welcome! Create your own secret code (4 digits or more). You’ll use it every time you open this page.":"Enter your code to open your tracker.";
+  $("code2").hidden=mode!=="create";$("go").textContent=mode==="create"?"Create code":"Open";
+}
+$("go").onclick=async function(){
+  var c=$("code").value.trim();$("err").textContent="";
+  if(c.length<4){$("err").textContent="Use at least 4 characters.";return}
+  if(mode==="create"){if(c!==$("code2").value.trim()){$("err").textContent="Codes don’t match.";return}S.hash=await sha(c);save()}
+  else if(await sha(c)!==S.hash){$("err").textContent="Wrong code. Try again.";return}
+  $("code").value="";$("code2").value="";ok=true;$("lock").hidden=true;$("app").hidden=false;init();
+};
+$("code").onkeydown=$("code2").onkeydown=function(e){if(e.key==="Enter")$("go").click()};
+$("out").onclick=function(){ok=false;$("app").hidden=true;$("lock").hidden=false;showLock()};
+
+/* app */
+function cats(){var s={};S.tx.forEach(function(t){if(t.c)s[t.c]=1});["Food","Transport","Rent","Bills","Shopping","Health","Salary","Stocks","Mutual funds"].forEach(function(c){s[c]=1});$("cats").innerHTML=Object.keys(s).map(function(c){return'<option value="'+esc(c)+'">'}).join("")}
+function init(){
+  $("dt").value=iso(new Date());cur=new Date();follow=true;cats();render();
+}
+$("types").onclick=function(e){var t=e.target.dataset.t;if(!t)return;type=t;[].forEach.call($("types").children,function(b){b.classList.toggle("on",b.dataset.t===t)})};
+$("views").onclick=function(e){var v=e.target.dataset.v;if(!v)return;view=v;[].forEach.call($("views").children,function(b){b.classList.toggle("on",b.dataset.v===v)});render()};
+$("add").onclick=function(){
+  var a=parseFloat($("amt").value);if(!(a>0)){$("amt").focus();return}
+  var d=$("dt").value||iso(new Date());
+  S.tx.push({id:Date.now()+""+Math.floor(Math.random()*1000),d:d,t:type,a:a,c:$("cat").value.trim()||"Other",n:$("note").value.trim()});
+  $("amt").value="";$("note").value="";save();cats();
+  var p=d.split("-");cur=new Date(+p[0],+p[1]-1,+p[2]);follow=d===iso(new Date());render();
+};
+function shift(n){follow=false;if(view==="day")cur=new Date(cur.getFullYear(),cur.getMonth(),cur.getDate()+n);else if(view==="month")cur=new Date(cur.getFullYear(),cur.getMonth()+n,1);else cur=new Date(cur.getFullYear()+n,0,1);render()}
+$("prev").onclick=function(){shift(-1)};$("next").onclick=function(){shift(1)};
+function inRange(t){var d=t.d;if(view==="day")return d===iso(cur);if(view==="month")return d.slice(0,7)===cur.getFullYear()+"-"+pad(cur.getMonth()+1);return d.slice(0,4)===""+cur.getFullYear()}
+function tot(a){var r={Income:0,Expense:0,Investment:0};a.forEach(function(t){r[t.t]+=t.a});return r}
+function bars(labels,data){
+  var mx=1;data.forEach(function(d){mx=Math.max(mx,d.Income,d.Expense,d.Investment)});
+  var n=labels.length,bw=Math.max(14,Math.min(60,Math.floor(620/n))),W=n*bw+10,H=170,s='<svg width="'+W+'" height="'+(H+24)+'" role="img" aria-label="Chart">';
+  data.forEach(function(d,i){var x=i*bw+5,w=(bw-4)/3;
+    [["Income","var(--in)"],["Expense","var(--ex)"],["Investment","var(--iv)"]].forEach(function(k,j){var h=d[k[0]]/mx*H;s+='<rect x="'+(x+j*w)+'" y="'+(H-h)+'" width="'+(w-1)+'" height="'+h+'" fill="'+k[1]+'" rx="2"/>'});
+    if(n<=12||i%2===0)s+='<text x="'+(x+bw/2-2)+'" y="'+(H+15)+'" text-anchor="middle" font-size="10" fill="var(--mu)">'+labels[i]+'</text>'});
+  return s+'</svg>';
+}
+function render(){
+  var a=S.tx.filter(inRange).sort(function(x,y){return y.d<x.d?-1:y.d>x.d?1:y.id<x.id?-1:1}),t=tot(a);
+  $("plabel").textContent=view==="day"?cur.toDateString():view==="month"?MN[cur.getMonth()]+" "+cur.getFullYear():""+cur.getFullYear();
+  var bal=t.Income-t.Expense-t.Investment;
+  $("sum").innerHTML='<div class="k"><small>Income</small><b class="in">'+money(t.Income)+'</b></div><div class="k"><small>Expense</small><b class="ex">'+money(t.Expense)+'</b></div><div class="k"><small>Investment</small><b class="iv">'+money(t.Investment)+'</b></div><div class="k"><small>Balance</small><b>'+money(bal)+'</b></div>';
+  var labels=[],data=[],i;
+  if(view==="year"){for(i=0;i<12;i++){labels.push(MN[i]);data.push(tot(a.filter(function(x){return +x.d.slice(5,7)===(labels.length)})))}}
+  else if(view==="month"){var dim=new Date(cur.getFullYear(),cur.getMonth()+1,0).getDate();for(i=1;i<=dim;i++){labels.push(i);data.push(tot(a.filter(function(x){return +x.d.slice(8)===labels.length})))}}
+  else{var cs={};a.forEach(function(x){cs[x.t+"|"+x.c]=(cs[x.t+"|"+x.c]||0)+x.a});var ks=Object.keys(cs);labels=ks.map(function(k){return k.split("|")[1].slice(0,6)});data=ks.map(function(k){var o={Income:0,Expense:0,Investment:0};o[k.split("|")[0]]=cs[k];return o})}
+  $("chart").innerHTML=data.length?bars(labels,data):'<p class="mu">No entries yet.</p>';
+  $("lh").textContent="Entries — "+$("plabel").textContent;
+  $("list").innerHTML=a.length?a.map(function(x){var c=x.t==="Income"?"in":x.t==="Expense"?"ex":"iv";return'<div class="tx"><div><b>'+esc(x.c)+'</b> <small>'+esc(x.n)+'</small><br><small>'+x.d+' · '+x.t+'</small></div><div class="row"><b class="'+c+'">'+(x.t==="Income"?"+":"−")+money(x.a)+'</b><button data-del="'+x.id+'" aria-label="Delete">✕</button></div></div>'}).join(""):'<p class="mu">Nothing recorded for this period.</p>';
+}
+$("list").onclick=function(e){var id=e.target.dataset.del;if(!id||!confirm("Delete this entry?"))return;S.tx=S.tx.filter(function(t){return t.id!==id});save();render()};
+
+/* Excel */
+$("xl").onclick=async function(){
+  var m=$("xmsg");m.textContent="";
+  if(!window.XLSX){m.textContent="Excel library couldn’t load. Check your connection.";return}
+  var all=S.tx.slice().sort(function(a,b){return a.d<b.d?-1:1});
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(all.map(function(t){return{Date:t.d,Type:t.t,Category:t.c,Note:t.n,Amount:t.a}})),"Entries");
+  var mo={};all.forEach(function(t){var k=t.d.slice(0,7);mo[k]=mo[k]||{Month:k,Income:0,Expense:0,Investment:0};mo[k][t.t]+=t.a});
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(mo).sort().map(function(k){var r=mo[k];r.Balance=r.Income-r.Expense-r.Investment;return r})),"Monthly summary");
+  var ct={};all.forEach(function(t){var k=t.t+"|"+t.c;ct[k]=(ct[k]||0)+t.a});
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.keys(ct).sort().map(function(k){return{Type:k.split("|")[0],Category:k.split("|")[1],Total:ct[k]}})),"Category summary");
+  var buf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+  var blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),fn="expenses-"+iso(new Date())+".xlsx";
+  try{var dl=await claude.use("downloads");
+    if(dl){await dl.save({filename:fn,data:blob});m.textContent="Saved ✓"}
+    else{var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fn;a.click();m.textContent="Downloading…"}
+  }catch(e){m.textContent=e&&e.code==="declined"?"Download cancelled.":"Download isn’t available in this view."}
+};
+
+/* automatic day change */
+function dayCheck(){if(!ok)return;var t=iso(new Date());if(window._d&&window._d!==t){$("dt").value=t;if(follow){cur=new Date();render()}}window._d=t}
+setInterval(dayCheck,30000);
+document.addEventListener("visibilitychange",function(){if(!document.hidden)dayCheck()});
+window._d=iso(new Date());
+load().then(showLock);
+</script></body></html>
