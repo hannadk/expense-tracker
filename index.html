@@ -147,11 +147,11 @@ $("go").onclick=async function(){
     if(SYNC){er.textContent="Checking…";docId=h;var r=await pull();if(r===false){er.textContent="Can’t reach the server. Check your internet.";return}er.textContent="";if(r)merge(r)}
     S.hash=h;saveLocal();
   }else if(h!==S.hash){er.textContent="Wrong code. Try again.";return}
-  docId=S.hash;
+  docId=S.hash;try{localStorage.setItem("et_remember","1")}catch(e){}
   $("code").value="";$("code2").value="";ok=true;$("lock").hidden=true;$("app").hidden=false;init();
 };
 $("code").onkeydown=$("code2").onkeydown=function(e){if(e.key==="Enter")$("go").click()};
-$("out").onclick=function(){ok=false;$("app").hidden=true;$("lock").hidden=false;showLock()};
+$("out").onclick=function(){try{localStorage.removeItem("et_remember")}catch(e){}ok=false;$("app").hidden=true;$("lock").hidden=false;showLock()};
 
 /* app */
 function cats(){var s={};S.tx.forEach(function(t){if(t.c)s[t.c]=1});["Food","Transport","Rent","Bills","Shopping","Health","Salary","Stocks","Mutual funds"].forEach(function(c){s[c]=1});$("cats").innerHTML=Object.keys(s).map(function(c){return'<option value="'+esc(c)+'">'}).join("")}
@@ -235,5 +235,5 @@ var ev=null;window.addEventListener("beforeinstallprompt",function(e){e.preventD
 $("ib").onclick=function(){if(ev){ev.prompt();ev=null;$("ib").hidden=true}};
 if(window.matchMedia&&matchMedia("(display-mode: standalone)").matches||navigator.standalone)$("inst").hidden=true;
 })();
-load().then(function(){applyTheme();showLock()});
+load().then(function(){applyTheme();showLock();var rm=false;try{rm=localStorage.getItem("et_remember")==="1"}catch(e){}if(rm&&S.hash){docId=S.hash;ok=true;$("lock").hidden=true;$("app").hidden=false;init()}});
 </script></body></html>
